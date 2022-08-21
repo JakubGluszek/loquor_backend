@@ -1,7 +1,21 @@
-import uvicorn
 from typing import List
+import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from cuid import cuid
+
+
+class Client(BaseModel):
+    id: str
+    username: str
+    socket: WebSocket
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
+clients: List[Client] = []
 
 
 app = FastAPI()
@@ -15,36 +29,45 @@ app.add_middleware(
 )
 
 
-class ConnectionManager:
-    def __init__(self):
-        self.connections: List[WebSocket] = []
+@app.websocket("/{username}")
+async def websocket_server(socket: WebSocket, username: str):
+    await socket.accept()
+    # create current client
+    client = Client(id=cuid(), username=username, socket=socket)
+    clients.append(client)
 
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.connections.append(websocket)
-        print(self.connections)
+    print(f"Connected clients: {len(clients)}")
 
-    def disconnect(self, websocket: WebSocket):
-        self.connections.remove(websocket)
-        print(self.connections)
+    # fetch current client
+    await client.socket.send_json(
+        {"type": "setMe", "data": client.dict(exclude={"socket"})}
+    )
 
-    async def broadcast(self, data):
-        for i in self.connections:
-            await i.send_json(data)
+    # fetch connected clients
+    users = []
+    for c in clients:
+        users.append(c.dict(exclude={"socket"}))
+    await client.socket.send_json({"type": "setUsers", "data": users})
 
+    # update connected clients user lists with new client
+    for c in clients:
+        await c.socket.send_json(
+            {"type": "addUser", "data": client.dict(exclude={"socket"})}
+        )
 
-manager = ConnectionManager()
-
-
-@app.websocket("/")
-async def handle_exchange(websocket: WebSocket):
-    await manager.connect(websocket)
     try:
         while True:
-            data = await websocket.receive_json()
-            await manager.broadcast(data)
+            data = await socket.receive_json()
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        # remove client from list of clients
+        for i, c in enumerate(clients):
+            if c.id == client.id:
+                del clients[i]
+
+        for c in clients:
+            await c.socket.send_json({"type": "removeUser", "data": client.id})
+
+        print(f"Connected clients: {len(clients)}")
 
 
 if __name__ == "__main__":
