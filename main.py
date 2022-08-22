@@ -51,9 +51,10 @@ async def websocket_server(socket: WebSocket, username: str):
 
     # update connected clients list with new client
     for c in clients:
-        await c.socket.send_json(
-            {"type": "addUser", "data": client.dict(exclude={"socket"})}
-        )
+        if c.id != client.id:
+            await c.socket.send_json(
+                {"type": "addUser", "data": client.dict(exclude={"socket"})}
+            )
 
     try:
         while True:
