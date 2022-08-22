@@ -49,7 +49,7 @@ async def websocket_server(socket: WebSocket, username: str):
         users.append(c.dict(exclude={"socket"}))
     await client.socket.send_json({"type": "setUsers", "data": users})
 
-    # update connected clients user lists with new client
+    # update connected clients list with new client
     for c in clients:
         await c.socket.send_json(
             {"type": "addUser", "data": client.dict(exclude={"socket"})}
@@ -58,12 +58,19 @@ async def websocket_server(socket: WebSocket, username: str):
     try:
         while True:
             data = await socket.receive_json()
+            print(data)
+            if data:
+                for c in clients:
+                    if c.id == data["data"]["to"]:
+                        await c.socket.send_json(data)
+
     except WebSocketDisconnect:
         # remove client from list of clients
         for i, c in enumerate(clients):
             if c.id == client.id:
                 del clients[i]
 
+        # emit to other clients to remove this disconnected client
         for c in clients:
             await c.socket.send_json({"type": "removeUser", "data": client.id})
 
