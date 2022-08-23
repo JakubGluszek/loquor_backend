@@ -60,7 +60,7 @@ async def websocket_server(socket: WebSocket, username: str):
         while True:
             data = await socket.receive_json()
             print(data)
-            if data:
+            if data["type"] in ["ice", "chatOffer", "chatOfferRes"]:
                 for c in clients:
                     if c.id == data["data"]["to"]:
                         await c.socket.send_json(data)
