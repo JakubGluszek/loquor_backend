@@ -29,41 +29,64 @@ app.add_middleware(
 )
 
 
-@app.websocket("/{username}")
-async def websocket_server(socket: WebSocket, username: str):
-    await socket.accept()
-    # create current client
+async def createClient(*, socket: WebSocket, username: str) -> Client:
     client = Client(id=cuid(), username=username, socket=socket)
     clients.append(client)
 
-    print(f"Connected clients: {len(clients)}")
+    await socket.send_json({"type": "me", "data": client.dict(exclude={"socket"})})
 
-    # fetch current client
-    await client.socket.send_json(
-        {"type": "setMe", "data": client.dict(exclude={"socket"})}
-    )
-
-    # fetch connected clients
     users = []
     for c in clients:
         users.append(c.dict(exclude={"socket"}))
-    await client.socket.send_json({"type": "setUsers", "data": users})
 
-    # update connected clients list with new client
+    await socket.send_json({"type": "setUsers", "data": users})
+
     for c in clients:
-        if c.id != client.id:
-            await c.socket.send_json(
-                {"type": "addUser", "data": client.dict(exclude={"socket"})}
-            )
+        await c.socket.send_json(
+            {"type": "addUser", "data": client.dict(exclude={"socket"})}
+        )
+
+    return client
+
+
+@app.websocket("/{username}")
+async def websocket_server(socket: WebSocket, username: str):
+    await socket.accept()
+
+    client = await createClient(socket=socket, username=username)
 
     try:
         while True:
-            data = await socket.receive_json()
-            print(data)
-            if data["type"] in ["ice-candidate", "chatInvite", "chatInviteRes", "offer", "answer"]:
+            event = await socket.receive_json()
+            data = event["data"]
+            print(event)
+
+            if event["type"] == "chatInvite":
+                # data: {target: clientID, from: client}
                 for c in clients:
-                    if c.id == data["data"]["to"]:
-                        await c.socket.send_json(data)
+                    if c.id == data["target"]:
+                        await c.socket.send_json(
+                            {"type": "chatInvite", "data": {"user": data["from"]}}
+                        )
+            elif event["type"] == "chatInviteCancel":
+                # data: {target: clientID, from: client}
+                for c in clients:
+                    if c.id == data["target"]:
+                        await c.socket.send_json(
+                            {"type": "chatInviteCancel", "data": {"user": data["from"]}}
+                        )
+            elif event["type"] == "chatInviteRes":
+                # data: {from: client, target: clientID, response: bool}
+                for c in clients:
+                    if c.id == data["target"]:
+                        await c.socket.send_json(
+                            {"type": "chatInviteRes", "data": data}
+                        )
+            elif event["type"] in ["ice-candidate", "offer", "answer"]:
+                # data: {from: clientID, target: clientID}
+                for c in clients:
+                    if c.id == data["target"]:
+                        await c.socket.send_json({"type": event["type"], "data": data})
 
     except WebSocketDisconnect:
         # remove client from list of clients
@@ -73,7 +96,9 @@ async def websocket_server(socket: WebSocket, username: str):
 
         # emit to other clients to remove this disconnected client
         for c in clients:
-            await c.socket.send_json({"type": "removeUser", "data": client.id})
+            await c.socket.send_json(
+                {"type": "removeUser", "data": client.dict(exclude={"socket"})}
+            )
 
         print(f"Connected clients: {len(clients)}")
 
