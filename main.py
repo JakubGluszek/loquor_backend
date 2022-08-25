@@ -35,12 +35,6 @@ async def createClient(*, socket: WebSocket, username: str) -> Client:
 
     await socket.send_json({"type": "me", "data": client.dict(exclude={"socket"})})
 
-    users = []
-    for c in clients:
-        users.append(c.dict(exclude={"socket"}))
-
-    await socket.send_json({"type": "setUsers", "data": users})
-
     for c in clients:
         await c.socket.send_json(
             {"type": "addUser", "data": client.dict(exclude={"socket"})}
@@ -59,9 +53,15 @@ async def websocket_server(socket: WebSocket, username: str):
         while True:
             event = await socket.receive_json()
             data = event["data"]
-            print(event)
 
-            if event["type"] == "chatInvite":
+            print(event)
+            if event["type"] == "getUsers":
+                users = []
+                for c in clients:
+                    users.append(c.dict(exclude={"socket"}))
+                await socket.send_json({"type": "setUsers", "data": users})
+
+            elif event["type"] == "chatInvite":
                 # data: {target: clientID, from: client}
                 for c in clients:
                     if c.id == data["target"]:
