@@ -54,7 +54,6 @@ async def websocket_server(socket: WebSocket, username: str):
             event = await socket.receive_json()
             data = event["data"]
 
-            print(event)
             if event["type"] == "getUsers":
                 users = []
                 for c in clients:
